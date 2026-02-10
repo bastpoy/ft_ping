@@ -64,6 +64,13 @@ struct sockaddr_in *get_my_ip(){
     return NULL;
 }
 
+unsigned long long concatenate(unsigned x, unsigned y) {
+    unsigned long long pow = 10;
+    while(y >= pow)
+        pow *= 10;
+    return x * pow + y;        
+}
+
 int main(){
     struct sockaddr_in dest_addr;
     uint8_t *msg = malloc(sizeof(struct icmphdr));
@@ -91,12 +98,16 @@ int main(){
     inet_aton("8.8.8.8", &dest_addr.sin_addr);
     dest_addr.sin_port = 0;
 
-    struct timeval start;
+    struct timespec time;
+
+    clock_gettime(CLOCK_REALTIME, &time);
     
-    gettimeofday(&start, NULL);
-    printf("time %lu\n", start.tv_sec);
-    printf("time %lu\n", start.tv_usec);
-    
+    unsigned long long timetime = concatenate(time.tv_sec, time.tv_nsec);
+
+    printf("adding two number %lu\n", time.tv_nsec);
+    printf("time %lu\n", time.tv_nsec);
+    printf("timetime %llu\n", timetime);
+
     if(sendto(icmp_socket, packet, sizeof(packet), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 1){
         printf("%s\n", strerror(errno));
         return(1);
