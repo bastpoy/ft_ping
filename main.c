@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/ip_icmp.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <sys/types.h>
@@ -9,6 +10,8 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/cdefs.h>
+
+#define ICMP_MINLEN 8
 
 struct ip_header{
     uint8_t version_ihl;
@@ -23,29 +26,51 @@ struct ip_header{
     uint32_t ip_dest;
 };
 
-struct icmp_packet{
-    uint8_t message_type;
-    uint8_t code;
-    uint16_t checksum;
-};
+// struct icmp
+// {
+//   u_int8_t  icmp_type;
+//   u_int8_t  icmp_code;
+//   u_int16_t icmp_cksum;
+//   uint16_t icmp_identifier;
+//   uint16_t icmp_sequence;
+// };
 
-unsigned short checksum(unsigned short *Data, int size)
-{
-    unsigned long somme=0;
-    while(size>1)
-    {
-        somme = somme + *Data++;
-        size = size - sizeof(unsigned short);
+
+// unsigned short checksum(unsigned short *Data, int size)
+// {
+//     unsigned long somme=0;
+//     while(size>1)
+//     {
+//         somme = somme + *Data++;
+//         size = size - sizeof(unsigned short);
+//     }
+
+//     if(size)
+//         somme = somme + *(unsigned char*)Data;
+
+//     somme = (somme >> 16)+(somme & 0xffff);
+//     somme = somme + (somme >> 16);
+
+//     return (unsigned short)(~somme);
+// }
+
+uint16_t checksum(void *addr, size_t len) {
+    uint16_t *word = addr;
+    uint32_t result = 0;
+
+    for (long unsigned int i = 0; i < len / sizeof(uint16_t); i++) {
+        result += *(word + i);
     }
-
-    if(size)
-        somme = somme + *(unsigned char*)Data;
-
-    somme = (somme >> 16)+(somme & 0xffff);
-    somme = somme + (somme >> 16);
-
-    return (unsigned short)(~somme);
+    if (len % 2 == 1) {
+        result += *((uint8_t *)addr + len - 1);
+    }
+    result = (result >> 16) + (result & 0xffff);
+    // Carry the previous add.
+    
+    result = (result >> 16) + (result & 0xffff);
+    return ~result;
 }
+
 
 struct sockaddr_in *get_my_ip(){
     struct ifaddrs *host_addrs = NULL;
@@ -63,7 +88,7 @@ struct sockaddr_in *get_my_ip(){
 
         if(family == AF_INET){
             printf("host_addrs name: -%s-\n", host_addrs->ifa_name);
-            if(&addr->sin_addr && strcmp(host_addrs->ifa_name, "wlp2s0") == 0){
+            if(strcmp(host_addrs->ifa_name, "wlp2s0") == 0){
                 char buffer[14];
                 if(!inet_ntop(AF_INET, &addr->sin_addr, buffer, 14)){
                     printf("Error converting address ton string");
@@ -110,30 +135,35 @@ struct ip_header initialize_header(){
 }
 
 int main(){
-    struct ip_header ip_packet;
     struct sockaddr_in dest_addr;
 
     // ip_packet = initialize_header();
 
     int icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if (socket < 0){
+    if (icmp_socket < 0){
         printf("error creating socket");
     }
 
-    struct icmp *packet = NULL;
+    struct icmp *packet = malloc(sizeof(struct icmp));
+    uint8_t *msg;
 
-    
+    packet->icmp_type = ICMP_ECHO; 
+    packet->icmp_code = 0;
+    packet->icmp_identifier = 0x1234;
+    packet->icmp_sequence = 0x0000;
+    packet = (struct icmp*)msg;
+    packet->icmp_cksum = checksum(msg, ICMP_MINLEN);
     
 
-    // dest_addr.sin_family = AF_INET;
-    // dest_addr.sin_addr.s_addr = ip_packet.ip_dest;
-    // dest_addr.sin_port = 0;
+    dest_addr.sin_family = AF_INET;
+    inet_aton("8.8.8.8", &dest_addr.sin_addr.s_addr);
+    dest_addr.sin_port = 0;
 
     // printf("address dest %x\n", dest_addr.sin_addr.s_addr);
     // printf("address source: %x\n", ip_packet.ip_source);
 
-    // if(sendto(icmp_socket, &ip_packet, sizeof(ip_packet), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 1){
-    //     printf("%s\n", strerror(errno));
-    // }
+    if(sendto(icmp_socket, packet, sizeof(packet), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 1){
+        printf("%s\n", strerror(errno));
+    }
     return (0);
 }
