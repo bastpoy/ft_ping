@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/cdefs.h>
 
 struct ip_header{
     uint8_t version_ihl;
@@ -112,22 +113,27 @@ int main(){
     struct ip_header ip_packet;
     struct sockaddr_in dest_addr;
 
-    ip_packet = initialize_header();
+    // ip_packet = initialize_header();
 
     int icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (socket < 0){
         printf("error creating socket");
     }
 
-    dest_addr.sin_family = AF_INET;
-    dest_addr.sin_addr.s_addr = ip_packet.ip_dest;
-    dest_addr.sin_port = 0;
+    struct icmp *packet = NULL;
 
-    printf("address dest %x\n", dest_addr.sin_addr.s_addr);
-    printf("address source: %x\n", ip_packet.ip_source);
+    
+    
 
-    if(sendto(icmp_socket, &ip_packet, sizeof(ip_packet), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 1){
-        printf("%s\n", strerror(errno));
-    }
+    // dest_addr.sin_family = AF_INET;
+    // dest_addr.sin_addr.s_addr = ip_packet.ip_dest;
+    // dest_addr.sin_port = 0;
+
+    // printf("address dest %x\n", dest_addr.sin_addr.s_addr);
+    // printf("address source: %x\n", ip_packet.ip_source);
+
+    // if(sendto(icmp_socket, &ip_packet, sizeof(ip_packet), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 1){
+    //     printf("%s\n", strerror(errno));
+    // }
     return (0);
 }
