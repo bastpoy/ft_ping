@@ -7,7 +7,7 @@
                 "/usr/include",
                 "/usr/local/include"
             ],
-            "defines": [],
+            "defines": ["_GNU_SOURCE"],
             "compilerPath": "/usr/bin/gcc",
             "cStandard": "c17",
             "cppStandard": "gnu++17",

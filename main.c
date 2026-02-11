@@ -34,7 +34,6 @@ uint16_t checksum(void *addr, size_t len) {
     return ~result;
 }
 
-
 struct sockaddr_in *get_my_ip(){
     struct ifaddrs *host_addrs = NULL;
     struct sockaddr_in *addr= NULL;
@@ -67,26 +66,31 @@ struct sockaddr_in *get_my_ip(){
     return NULL;
 }
 
-void getDestAddr(char *argv){
+int getDestAddr(char *argv, struct sockaddr_in *addrDest){
     struct addrinfo hints;
     struct addrinfo *result, *rp;
+    char ipstr[INET6_ADDRSTRLEN];
 
     memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
-    hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
-    hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
-    hints.ai_protocol = 0;          /* Any protocol */
-    hints.ai_canonname = NULL;
-    hints.ai_addr = NULL;
-    hints.ai_next = NULL;
-
-    if(getaddrinfo(NULL, argv, &hints, &result) < 0){
-        printf("Error resolving host address\n");
-        return;
+    hints.ai_family = AF_UNSPEC; // IPv4 ou IPv6
+    hints.ai_socktype = SOCK_STREAM; // Une seule famille de socket
+    
+    int ret = getaddrinfo(argv, NULL, &hints, &result);
+    if(ret != 0){
+        printf("ping: %s: Name or service not known\n", argv);
+        return 2;
     }
     for (rp = result; rp != NULL; rp = rp->ai_next) {
-        
+        if (rp->ai_family == AF_INET) {
+            struct sockaddr_in *temp = (struct sockaddr_in *)rp->ai_addr;
+            memcpy(addrDest, (struct sockaddr_in *)rp->ai_addr, sizeof(struct sockaddr_in));
+            printf("family address: %d port %d\n", temp->sin_family, temp->sin_port);
+            inet_ntop(rp->ai_family, &(temp->sin_addr), ipstr, sizeof ipstr);
+            printf(" IPv4: %s\n", ipstr);
+            return 0;
+        }
     }
+    return 0;
 }
 
 unsigned long long concatenate(unsigned long long x, unsigned y) {
@@ -146,8 +150,13 @@ int main(int argc, char *argv[]){
         printf("ping: %s: Name or service not known\n", argv[2]);
         return 2;
     }
+    
+    int ret = getDestAddr(argv[1], &dest_addr);
+    if(ret < 0){
+        return ret;
+    }
+    printf("family of dest: %d\n", dest_addr.sin_family);
 
-    getDestAddr(argv[1]);
 
     int icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (icmp_socket < 0){
@@ -163,14 +172,12 @@ int main(int argc, char *argv[]){
     packet->checksum = 0;
     packet = (struct icmphdr*)msg;
     packet->checksum = checksum(msg, ICMP_MINLEN);
-
-    printf("the checksum is: %x and pid is: %d\n", packet->checksum, packet->un.echo.id);
     
     //Create the destination address
+    
     dest_addr.sin_family = AF_INET;
     inet_aton("8.8.8.8", &dest_addr.sin_addr);
     dest_addr.sin_port = 0;
-
     if(sendto(icmp_socket, packet, sizeof(packet), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 1){
         printf("%s\n", strerror(errno));
         return(1);
@@ -185,18 +192,13 @@ int main(int argc, char *argv[]){
         printf("error receviving message: %s\n", strerror(errno));
         return 1;
     }
-    printf("Return value %02x%02x%02x%02x and size %d\n", buffer[0], buffer[1], buffer[2], buffer[3], size);
-    union {
-        struct icmphdr msg;
-        char msgbuf[IP_MAXPACKET];
-    } u;
+    struct icmphdr icmpresp;
 
+    size_t msg_len = sizeof(struct icmphdr);
+    extract_message(buffer, size, &icmpresp, &msg_len);
 
-    size_t msg_len = sizeof(u);
-    extract_message(buffer, size, &u.msg, &msg_len);
-
-    printf("response icmp packet type: %x\n", u.msg.type);
-    printf("response icmp id: %x\n", u.msg.code);
+    printf("response icmp packet type: %x\n", icmpresp.type);
+    printf("response icmp id: %x\n", icmpresp.code);
 
     return (0);
 }
