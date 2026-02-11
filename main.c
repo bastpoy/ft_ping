@@ -172,21 +172,17 @@ int main(int argc, char *argv[]){
     packet->checksum = 0;
     packet = (struct icmphdr*)msg;
     packet->checksum = checksum(msg, ICMP_MINLEN);
-    
-    //Create the destination address
-    
-    dest_addr.sin_family = AF_INET;
-    inet_aton("8.8.8.8", &dest_addr.sin_addr);
-    dest_addr.sin_port = 0;
-    if(sendto(icmp_socket, packet, sizeof(packet), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 1){
+
+    int size = sendto(icmp_socket, packet, sizeof(packet), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)); 
+    if(size < 1){
         printf("%s\n", strerror(errno));
         return(1);
     }
+    printf("size sent %d\n", size);
 
     char buffer[1024] = "\0";
     socklen_t lenDest = sizeof(dest_addr);
 
-    int size = 0;
     size = recvfrom(icmp_socket, buffer, 1024, 0, (struct sockaddr *)&dest_addr, &lenDest);
     if(size < 0){
         printf("error receviving message: %s\n", strerror(errno));
