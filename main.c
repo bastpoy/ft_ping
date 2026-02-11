@@ -5,6 +5,7 @@
 #include <netinet/ip_icmp.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include <netdb.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +13,7 @@
 #include <errno.h>
 #include <time.h>
 #include <unistd.h>
+#include <math.h>
 
 #define ICMP_MINLEN 8
 
@@ -31,6 +33,7 @@ uint16_t checksum(void *addr, size_t len) {
     result = (result >> 16) + (result & 0xffff);
     return ~result;
 }
+
 
 struct sockaddr_in *get_my_ip(){
     struct ifaddrs *host_addrs = NULL;
@@ -64,17 +67,87 @@ struct sockaddr_in *get_my_ip(){
     return NULL;
 }
 
-unsigned long long concatenate(unsigned x, unsigned y) {
+void getDestAddr(char *argv){
+    struct addrinfo hints;
+    struct addrinfo *result, *rp;
+
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+    hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
+    hints.ai_flags = AI_PASSIVE;    /* For wildcard IP address */
+    hints.ai_protocol = 0;          /* Any protocol */
+    hints.ai_canonname = NULL;
+    hints.ai_addr = NULL;
+    hints.ai_next = NULL;
+
+    if(getaddrinfo(NULL, argv, &hints, &result) < 0){
+        printf("Error resolving host address\n");
+        return;
+    }
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+        
+    }
+}
+
+unsigned long long concatenate(unsigned long long x, unsigned y) {
     unsigned long long pow = 10;
-    while(y >= pow)
+    while(y >= pow){
         pow *= 10;
+    }
     return x * pow + y;        
 }
 
-int main(){
+unsigned long long getTimeInMs(){
+    struct timespec time;
+
+    clock_gettime(CLOCK_REALTIME, &time);
+    unsigned int timems = time.tv_nsec / 1000000;
+    int nDigits = floor(log10(timems)) + 1;
+    unsigned long long timetime = 0;
+    if (nDigits < 3){
+        timetime = time.tv_sec * 10;
+        timetime = concatenate(timetime, timems);
+    }
+    else
+        timetime = concatenate(time.tv_sec, timems);
+    return timetime;
+}
+
+void extract_message(void *pkt, size_t pkt_len, struct icmphdr *msg,
+                     size_t *msg_len) {
+    // Skip the IPv4 header if it's present.
+    if (pkt_len > sizeof(struct ip)) {
+        struct ip *ip_pkt = (struct ip *)pkt;
+        if (ip_pkt->ip_v == IPVERSION) {
+            int iplen = 4 * ip_pkt->ip_hl;
+            pkt += iplen;
+            pkt_len -= iplen;
+        }
+    }
+    if (*msg_len < pkt_len) { // Avoid buffer overrun
+        pkt_len = *msg_len;
+    }
+    *msg_len = pkt_len;
+    memcpy(msg, pkt, *msg_len);
+}
+
+
+int main(int argc, char *argv[]){
     struct sockaddr_in dest_addr;
     uint8_t *msg = malloc(sizeof(struct icmphdr));
     struct icmphdr *packet = (struct icmphdr*)msg;
+
+    if(argc  < 2){
+        printf("ping: usage error: Destination address required\n");
+        return 2;
+    }
+
+    if(argc > 2){
+        printf("ping: %s: Name or service not known\n", argv[2]);
+        return 2;
+    }
+
+    getDestAddr(argv[1]);
 
     int icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (icmp_socket < 0){
@@ -98,19 +171,32 @@ int main(){
     inet_aton("8.8.8.8", &dest_addr.sin_addr);
     dest_addr.sin_port = 0;
 
-    struct timespec time;
-
-    clock_gettime(CLOCK_REALTIME, &time);
-    
-    unsigned long long timetime = concatenate(time.tv_sec, time.tv_nsec);
-
-    printf("adding two number %lu\n", time.tv_nsec);
-    printf("time %lu\n", time.tv_nsec);
-    printf("timetime %llu\n", timetime);
-
     if(sendto(icmp_socket, packet, sizeof(packet), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 1){
         printf("%s\n", strerror(errno));
         return(1);
     }
+
+    char buffer[1024] = "\0";
+    socklen_t lenDest = sizeof(dest_addr);
+
+    int size = 0;
+    size = recvfrom(icmp_socket, buffer, 1024, 0, (struct sockaddr *)&dest_addr, &lenDest);
+    if(size < 0){
+        printf("error receviving message: %s\n", strerror(errno));
+        return 1;
+    }
+    printf("Return value %02x%02x%02x%02x and size %d\n", buffer[0], buffer[1], buffer[2], buffer[3], size);
+    union {
+        struct icmphdr msg;
+        char msgbuf[IP_MAXPACKET];
+    } u;
+
+
+    size_t msg_len = sizeof(u);
+    extract_message(buffer, size, &u.msg, &msg_len);
+
+    printf("response icmp packet type: %x\n", u.msg.type);
+    printf("response icmp id: %x\n", u.msg.code);
+
     return (0);
 }
