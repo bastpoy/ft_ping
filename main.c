@@ -66,10 +66,11 @@ struct sockaddr_in *get_my_ip(){
     return NULL;
 }
 
-int getDestAddr(char *argv, struct sockaddr_in *addrDest){
+int getDestAddr(char *argv, struct sockaddr_in *addrDest, char *buffer){
     struct addrinfo hints;
     struct addrinfo *result, *rp;
-    char ipstr[INET6_ADDRSTRLEN];
+    char ipstr[INET_ADDRSTRLEN];
+    char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
 
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_family = AF_UNSPEC; // IPv4 ou IPv6
@@ -84,62 +85,49 @@ int getDestAddr(char *argv, struct sockaddr_in *addrDest){
         if (rp->ai_family == AF_INET) {
             struct sockaddr_in *temp = (struct sockaddr_in *)rp->ai_addr;
             memcpy(addrDest, (struct sockaddr_in *)rp->ai_addr, sizeof(struct sockaddr_in));
-            printf("family address: %d port %d\n", temp->sin_family, temp->sin_port);
-            inet_ntop(rp->ai_family, &(temp->sin_addr), ipstr, sizeof ipstr);
-            printf(" IPv4: %s\n", ipstr);
+            inet_ntop(rp->ai_family, &(temp->sin_addr), ipstr, sizeof(ipstr));
+            if (getnameinfo((struct sockaddr*)temp, sizeof(struct sockaddr), hbuf, sizeof(hbuf), sbuf,
+                    sizeof(sbuf), NI_NAMEREQD) == 0){
+                memcpy(buffer, hbuf, sizeof(hbuf));
+            }
+            freeaddrinfo(result);
             return 0;
         }
     }
+    freeaddrinfo(result);
     return 0;
 }
 
-unsigned long long concatenate(unsigned long long x, unsigned y) {
-    unsigned long long pow = 10;
-    while(y >= pow){
-        pow *= 10;
-    }
-    return x * pow + y;        
+double get_timestamp()
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec + ((double)tv.tv_usec) / 1000000;
 }
 
-unsigned long long getTimeInMs(){
-    struct timespec time;
-
-    clock_gettime(CLOCK_REALTIME, &time);
-    unsigned int timems = time.tv_nsec / 1000000;
-    int nDigits = floor(log10(timems)) + 1;
-    unsigned long long timetime = 0;
-    if (nDigits < 3){
-        timetime = time.tv_sec * 10;
-        timetime = concatenate(timetime, timems);
-    }
-    else
-        timetime = concatenate(time.tv_sec, timems);
-    return timetime;
-}
-
-void extract_message(void *pkt, size_t pkt_len, struct icmphdr *msg,
-                     size_t *msg_len) {
-    // Skip the IPv4 header if it's present.
-    if (pkt_len > sizeof(struct ip)) {
-        struct ip *ip_pkt = (struct ip *)pkt;
-        if (ip_pkt->ip_v == IPVERSION) {
-            int iplen = 4 * ip_pkt->ip_hl;
-            pkt += iplen;
-            pkt_len -= iplen;
-        }
-    }
-    if (*msg_len < pkt_len) { // Avoid buffer overrun
-        pkt_len = *msg_len;
-    }
-    *msg_len = pkt_len;
-    memcpy(msg, pkt, *msg_len);
+void extract_message(void *pkt, struct icmphdr *msg, double *value, uint8_t *ttl) {
+    struct ip *ipHeader = pkt;
+    *ttl = ipHeader->ip_ttl;
+    //je decale de la struct ip
+    pkt = ipHeader + 1;
+    //je prends la data contenu dans le packet icmp
+    memcpy(value, pkt + 8, 8);
+    //je prends le packet icmp
+    memcpy(msg, pkt, 8);
 }
 
 
 int main(int argc, char *argv[]){
     struct sockaddr_in dest_addr;
-    uint8_t *msg = malloc(sizeof(struct icmphdr));
+    uint8_t *msg = malloc(sizeof(struct icmphdr) + 8);
     struct icmphdr *packet = (struct icmphdr*)msg;
+    char ipstr[INET_ADDRSTRLEN];
+    char destHostname[NI_MAXHOST];
+    struct icmphdr icmpresp;
+    double time;
+    uint8_t ttl = 0;
+    int icmp_socket = 0;
+    uint16_t sequence = 0x0001;
 
     if(argc  < 2){
         printf("ping: usage error: Destination address required\n");
@@ -151,50 +139,54 @@ int main(int argc, char *argv[]){
         return 2;
     }
     
-    int ret = getDestAddr(argv[1], &dest_addr);
-    if(ret < 0){
+    int ret = getDestAddr(argv[1], &dest_addr, destHostname);
+    if(ret != 0){
         return ret;
     }
-    printf("family of dest: %d\n", dest_addr.sin_family);
+    inet_ntop(dest_addr.sin_family, &dest_addr.sin_addr, ipstr, sizeof(ipstr));
+    printf("PING %s (%s) %d bytes of data\n", argv[1], ipstr, 36);
+    while(sequence < 2){
 
-
-    int icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if (icmp_socket < 0){
-        printf("error creating socket: %s\n", strerror(errno));
-        return(1);
-    }
+        icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+        if (icmp_socket < 0){
+            printf("error creating socket: %s\n", strerror(errno));
+            return(1);
+        }
+        
+        packet->type = ICMP_ECHO; 
+        packet->code = 0;
+        packet->un.echo.id = getpid();
+        packet->un.echo.sequence = sequence;
+        packet->checksum = 0;
+        packet = (struct icmphdr*)msg;
+        double *timestamp = (double *)(packet + 1);
+        *timestamp = get_timestamp();
+        packet->checksum = checksum(msg, 16);
+        int size = sendto(icmp_socket, packet, 16, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)); 
+        if(size < 1){
+            printf("Error sendto: %s\n", strerror(errno));
+            return(1);
+        }
     
-    // Create the ICMP packet
-    packet->type = ICMP_ECHO; 
-    packet->code = 0;
-    packet->un.echo.id = getpid();
-    packet->un.echo.sequence = 0x0000;
-    packet->checksum = 0;
-    packet = (struct icmphdr*)msg;
-    packet->checksum = checksum(msg, ICMP_MINLEN);
-
-    int size = sendto(icmp_socket, packet, sizeof(packet), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)); 
-    if(size < 1){
-        printf("%s\n", strerror(errno));
-        return(1);
+        char buffer[1024] = "\0";
+        socklen_t lenDest = sizeof(dest_addr);
+    
+        size = recvfrom(icmp_socket, buffer, 1024, 0, (struct sockaddr *)&dest_addr, &lenDest);
+        if(size < 0){
+            printf("error receviving message: %s\n", strerror(errno));
+            return 1;
+        }
+        extract_message(buffer, &icmpresp, &time, &ttl);
+        printf("%d bytes from %s (%s): icmp_seq=%d ttl=%d time=%.2f\n",
+             size, destHostname, ipstr, icmpresp.un.echo.sequence, ttl, (get_timestamp() - time) * 1000);
+        
+        sequence += 1;
+        close(icmp_socket);
+        sleep(1);
     }
-    printf("size sent %d\n", size);
 
-    char buffer[1024] = "\0";
-    socklen_t lenDest = sizeof(dest_addr);
+    printf("--- %s ping statistics ---\n", argv[1]);    
 
-    size = recvfrom(icmp_socket, buffer, 1024, 0, (struct sockaddr *)&dest_addr, &lenDest);
-    if(size < 0){
-        printf("error receviving message: %s\n", strerror(errno));
-        return 1;
-    }
-    struct icmphdr icmpresp;
-
-    size_t msg_len = sizeof(struct icmphdr);
-    extract_message(buffer, size, &icmpresp, &msg_len);
-
-    printf("response icmp packet type: %x\n", icmpresp.type);
-    printf("response icmp id: %x\n", icmpresp.code);
-
+    free(msg);
     return (0);
 }
