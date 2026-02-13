@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <netdb.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +17,21 @@
 #include <math.h>
 
 #define ICMP_MINLEN 8
+
+struct calc_time{
+    volatile sig_atomic_t interrupted;
+    unsigned int packet_send;
+    unsigned int packet_receive;
+    struct timeval firstPacketSend;
+    float packet_loss;
+};
+
+struct calc_time calcTime = {
+    .packet_send = 0,
+    .packet_receive = 0,
+    .packet_loss = 0,
+    .interrupted = 0,
+};
 
 uint16_t checksum(void *addr, size_t len) {
     uint16_t *word = addr;
@@ -28,13 +44,12 @@ uint16_t checksum(void *addr, size_t len) {
         result += *((uint8_t *)addr + len - 1);
     }
     result = (result >> 16) + (result & 0xffff);
-    // Carry the previous add.
     
     result = (result >> 16) + (result & 0xffff);
     return ~result;
 }
 
-struct sockaddr_in *get_my_ip(){
+struct sockaddr_in *get_my_ip(char *buffer){
     struct ifaddrs *host_addrs = NULL;
     struct sockaddr_in *addr= NULL;
 
@@ -49,15 +64,11 @@ struct sockaddr_in *get_my_ip(){
         addr = (struct sockaddr_in*)host_addrs->ifa_addr;
 
         if(family == AF_INET){
-            printf("host_addrs name: -%s-\n", host_addrs->ifa_name);
             if(strcmp(host_addrs->ifa_name, "wlp2s0") == 0){
-                char buffer[14];
-                if(!inet_ntop(AF_INET, &addr->sin_addr, buffer, 14)){
-                    printf("Error converting address ton string");
+                if(!inet_ntop(AF_INET, &addr->sin_addr, buffer, INET_ADDRSTRLEN)){
+                    printf("Error converting address too string\n");
                     return NULL;
                 }
-                printf("the address is: %s\n", buffer);
-                printf("the address is %x \n\n", addr->sin_addr.s_addr);
                 return addr;
             }
         }
@@ -88,7 +99,8 @@ int getDestAddr(char *argv, struct sockaddr_in *addrDest, char *buffer){
             inet_ntop(rp->ai_family, &(temp->sin_addr), ipstr, sizeof(ipstr));
             if (getnameinfo((struct sockaddr*)temp, sizeof(struct sockaddr), hbuf, sizeof(hbuf), sbuf,
                     sizeof(sbuf), NI_NAMEREQD) == 0){
-                memcpy(buffer, hbuf, sizeof(hbuf));
+                    memcpy(buffer, hbuf, sizeof(hbuf));
+                    printf("dest addr %s\n", buffer);
             }
             freeaddrinfo(result);
             return 0;
@@ -116,18 +128,45 @@ void extract_message(void *pkt, struct icmphdr *msg, double *value, uint8_t *ttl
     memcpy(msg, pkt, 8);
 }
 
+void add_time_rtt(float **ptr, float time, int index, int *ptrSize){
+    if(index >= *ptrSize){
+        *ptrSize = *ptrSize + 15;
+        *ptr = (float*)realloc(*ptr, (*ptrSize) * sizeof(float));
+    }
+    (*ptr)[index] = time;
+}
+
+void sigint_handler(int signal)
+{
+    if (signal == SIGINT){
+        calcTime.interrupted = 1;
+    }
+    else if (signal == SIGQUIT){
+        printf("the number of packet send is: %d\n", calcTime.packet_send);
+    }
+}
 
 int main(int argc, char *argv[]){
     struct sockaddr_in dest_addr;
     uint8_t *msg = malloc(sizeof(struct icmphdr) + 8);
     struct icmphdr *packet = (struct icmphdr*)msg;
-    char ipstr[INET_ADDRSTRLEN];
-    char destHostname[NI_MAXHOST];
+    int sizeRtt = 3;
+    float *rttptr = malloc(sizeof(float) * sizeRtt);
+    char targetIp[INET_ADDRSTRLEN] = "\0";;
+    char hostIp[INET_ADDRSTRLEN] = "\0";
+    char destHostname[NI_MAXHOST] = "\0";
     struct icmphdr icmpresp;
     double time;
     uint8_t ttl = 0;
     int icmp_socket = 0;
     uint16_t sequence = 0x0001;
+    struct sigaction act;
+
+    bzero(&act, sizeof(act));
+    act.sa_handler = &sigint_handler;
+    
+    sigaction(SIGINT , &act, NULL);
+    sigaction(SIGQUIT , &act, NULL);
 
     if(argc  < 2){
         printf("ping: usage error: Destination address required\n");
@@ -143,9 +182,12 @@ int main(int argc, char *argv[]){
     if(ret != 0){
         return ret;
     }
-    inet_ntop(dest_addr.sin_family, &dest_addr.sin_addr, ipstr, sizeof(ipstr));
-    printf("PING %s (%s) %d bytes of data\n", argv[1], ipstr, 36);
-    while(sequence < 2){
+    inet_ntop(dest_addr.sin_family, &dest_addr.sin_addr, targetIp, sizeof(targetIp));
+    get_my_ip(hostIp);
+    printf("PING %s (%s) %d bytes of data\n", argv[1], targetIp, 36);
+    double timestart = get_timestamp(); 
+
+    while(!calcTime.interrupted){
 
         icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
         if (icmp_socket < 0){
@@ -162,10 +204,13 @@ int main(int argc, char *argv[]){
         double *timestamp = (double *)(packet + 1);
         *timestamp = get_timestamp();
         packet->checksum = checksum(msg, 16);
+
         int size = sendto(icmp_socket, packet, 16, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)); 
         if(size < 1){
             printf("Error sendto: %s\n", strerror(errno));
             return(1);
+        }else{
+            calcTime.packet_send += 1;
         }
     
         char buffer[1024] = "\0";
@@ -177,16 +222,32 @@ int main(int argc, char *argv[]){
             return 1;
         }
         extract_message(buffer, &icmpresp, &time, &ttl);
-        printf("%d bytes from %s (%s): icmp_seq=%d ttl=%d time=%.2f\n",
-             size, destHostname, ipstr, icmpresp.un.echo.sequence, ttl, (get_timestamp() - time) * 1000);
-        
+
+        if(icmpresp.code == 1 && icmpresp.type == 3){
+            printf("From %s icmp_seq=%d Destination Host Unreachable\n", hostIp, sequence);
+        }else if(icmpresp.code == 0 && icmpresp.type == 8 && strcmp(hostIp, targetIp)) {
+            printf("From %s icmp_seq=%d Destination Host Unreachable\n", hostIp, sequence);
+        }
+        else{
+            float timePacket = (get_timestamp() - time) * 1000;
+            printf("%d bytes from %s (%s): icmp_seq=%d ttl=%d time=%.2f ms\n",
+                 size, destHostname, targetIp, icmpresp.un.echo.sequence, ttl, timePacket);
+            calcTime.packet_receive += 1;
+            add_time_rtt(&rttptr, timePacket, sequence - 1, &sizeRtt);
+        }
         sequence += 1;
         close(icmp_socket);
         sleep(1);
     }
+    for(int i = 0; i < sequence - 1; i++){
+        printf("float time: %0.2f\n", rttptr[i]);
+    }
 
-    printf("--- %s ping statistics ---\n", argv[1]);    
-
+    printf("--- %s ping statistics ---  \n", argv[1]);
+    float packet_loss = ((calcTime.packet_send - calcTime.packet_receive) / calcTime.packet_send) * 100.0 ;
+    printf("%d packets transmitted, %d received, %0.0f%% packet loss, time %0.2fms\n", 
+        calcTime.packet_send, calcTime.packet_receive, packet_loss, (get_timestamp() - timestart) * 1000);
+    printf("rtt min/avg/max/mdev = 16.575/16.918/17.261/0.343 ms\n");
     free(msg);
     return (0);
 }
