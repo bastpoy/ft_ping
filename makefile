@@ -1,26 +1,39 @@
 CC = gcc
-CFLAGS = -g -Wall -Wextra -Werror
+CFLAGS = -g -Wall -Wextra -Werror -Iinclude
 LDFLAGS = -lm
 
 NAME = ft_ping
 
-SRCS = main.c
+SRCDIR = src
+OBJDIR = obj
+BINDIR = output
+BIN = $(BINDIR)/$(NAME)
 
-OBJS = $(SRCS:.c=.o)
+SRCS = $(wildcard $(SRCDIR)/*.c)
+OBJS = $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SRCS))
 
-all: $(NAME)
+all: $(BIN)
 
-$(NAME): $(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) -o $(NAME) $(LDFLAGS)
+$(BIN): $(OBJS) | $(BINDIR)
+	$(CC) $(CFLAGS) $(OBJS) -o $(BIN) $(LDFLAGS)
 
-%.o: %.c
+$(OBJDIR)/%.o: $(SRCDIR)/%.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
+
+$(BINDIR):
+	mkdir -p $(BINDIR)
+
 clean:
-	rm -f $(OBJS)
+	rm -f $(OBJDIR)/*.o
+	rm -f *.o
 
 fclean: clean
-	rm -f $(NAME)
+	rm -f $(BIN)
+	rm -rf $(OBJDIR)
+	rm -rf $(BINDIR)
 
 re: fclean all
 

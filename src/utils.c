@@ -1,0 +1,85 @@
+#include "../include/header.h"
+
+void print_help(){
+    printf("Usage\n  ping [options] <destination>\n\nOptions:\n  <destination>\t\tdns name or ip address\n"
+        "  -h\t\t\tprint help and exit\n"
+        "  -v\t\t\tverbose output\n\n"
+        "For more details see ping(8).\n");
+}
+
+bool detect_help_parameter(char *argv){
+    if(argv[0] == '-'){
+        for(int i = 1; i < (int)strlen(argv); i++){
+            if(argv[i] == 'h'){
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+int check_args(int argc, char *argv[], int *index){
+    if(argc < 2){
+        printf("ping: usage error: Destination address required\n");
+        return 2;
+    }
+    else if(argc == 2){
+        if(argv[1][0] == '-' && strlen(argv[1]) == 2 && !detect_help_parameter(argv[1])){
+            printf("ping: usage error: Destination address required\n");
+            return 1;
+        }
+        else if(detect_help_parameter(argv[1])){
+            print_help();
+        }
+        return 0;
+    }
+    else if(argc > 3){
+        print_help();
+        return 2;
+    }
+    else{
+        bool verbosearg = false;
+        for(int i = 1; i < argc; i++){
+            if(detect_help_parameter(argv[i])){
+                print_help();
+                return 2;
+            }
+            else if(!strcmp(argv[i], "-v")){
+                if(verbosearg == true){
+                    printf("ping: usage error: Destination address required\n");
+                    return 1;
+                }
+                if(i == 1)
+                    *index = 2;
+                else
+                    *index = 1;
+                verbosearg = true;
+            }
+        }
+        if(verbosearg == true)
+            return 0;
+        printf("ping: %s: Name or service not known\n", argv[2]);
+        return 2;
+    }
+    return 0;
+}
+
+double get_timestamp(){
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec + ((double)tv.tv_usec) / 1000000;
+}
+
+void print_result_ping(struct ping_struct ping_struct, float *rttptr, int sequence, double timeStart, char *arg){
+    printf("\n--- %s ping statistics ---  \n", arg);
+    float packet_loss = ((ping_struct.packet_send - ping_struct.packet_receive) / ping_struct.packet_send) * 100.0 ;
+    printf("%d packets transmitted, %d received, %0.0f%% packet loss, time %0.2fms\n", 
+        ping_struct.packet_send, ping_struct.packet_receive, packet_loss, (get_timestamp() - timeStart) * 1000);
+    printf("rtt min/avg/max/mdev = %0.3f/%0.3f/%0.3f/%0.3f ms\n", 
+        find_min(rttptr, sequence - 1), find_avg(rttptr, sequence - 1), find_max(rttptr, sequence - 1), find_mean_deviation(rttptr, sequence -1));    
+}
+
+void free_msg_rttptr(uint8_t *msg, float *rttptr){
+    free(msg);
+    free(rttptr);
+}
