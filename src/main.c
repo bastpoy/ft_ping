@@ -140,24 +140,24 @@ int main(int argc, char *argv[]){
     uint8_t ttl = 0;
     int icmp_socket = 0;
     int index = 1;
-    struct sigaction act;
     struct ping_struct ping_struct = {
         .sequence = 1,
         .packet_send = 0,
         .packet_receive = 0,
         .packet_loss = 0,
     };
-
+    
     int ret = check_args(argc, argv, &index);
     if(ret != 0){
         return (ret);
     }
-
+    
+    struct sigaction act;
     bzero(&act, sizeof(act));
     act.sa_handler = &sigint_handler;
     
-    sigaction(SIGINT , &act, NULL);
-    
+    sigaction(SIGINT, &act, NULL);
+
     ret = getDestAddr(argv[index], &dest_addr, destHostname);
     if(ret != 0){
         return ret;
@@ -172,7 +172,7 @@ int main(int argc, char *argv[]){
     printf("PING %s (%s) %d bytes of data\n", argv[index], targetIp, 36);
     double timestart = get_timestamp(); 
 
-    while(!interrupted){
+    while(interrupted != 1){
 
         icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
         if (icmp_socket < 0){
@@ -190,10 +190,9 @@ int main(int argc, char *argv[]){
         }else{
             ping_struct.packet_send += 1;
         }
-    
+        
         char buffer[1024] = "\0";
         socklen_t lenDest = sizeof(dest_addr);
-    
         size = recvfrom(icmp_socket, buffer, 1024, 0, (struct sockaddr *)&dest_addr, &lenDest);
         if(size < 0){
             printf("error receviving message: %s\n", strerror(errno));
