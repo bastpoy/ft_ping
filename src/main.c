@@ -72,6 +72,9 @@ int getDestAddr(char *argv, struct sockaddr_in *addrDest, char *buffer, bool ver
         else if (ret == -5){
             printf("ping: %s: No address associated with hostname\n", argv);
         }
+        else{
+            printf("ping: %s: No address associated with hostname\n", argv);
+        }
         return 2;
     }
     for (rp = result; rp != NULL; rp = rp->ai_next) {
@@ -168,7 +171,7 @@ int main(int argc, char *argv[]){
     }
     inet_ntop(dest_addr.sin_family, &dest_addr.sin_addr, targetIp, sizeof(targetIp));
     get_my_ip(hostIp);
-    
+
     uint8_t *msg = malloc(sizeof(struct icmphdr) + 8);
     struct icmphdr *packet = (struct icmphdr*)msg;
     float *rttptr = malloc(sizeof(float) * sizeRtt);
