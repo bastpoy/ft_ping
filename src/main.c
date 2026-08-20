@@ -51,7 +51,7 @@ struct sockaddr_in *get_my_ip(char *buffer){
     return NULL;
 }
 
-int getDestAddr(char *argv, struct sockaddr_in *addrDest, char *buffer){
+int getDestAddr(char *argv, struct sockaddr_in *addrDest, char *buffer, bool verboseMode){
     struct addrinfo hints;
     struct addrinfo *result, *rp;
     char ipstr[INET_ADDRSTRLEN];
@@ -65,11 +65,12 @@ int getDestAddr(char *argv, struct sockaddr_in *addrDest, char *buffer){
     if(ret != 0){
         if(ret == -2){
             printf("ping: %s: Name or service not known\n", argv);
-            freeaddrinfo(result);
         }
         else if (ret == -3){
             printf("ping: %s: Temporary failure in name resolution\n", argv);
-            freeaddrinfo(result);
+        }
+        else if (ret == -5){
+            printf("ping: %s: No address associated with hostname\n", argv);
         }
         return 2;
     }
@@ -82,6 +83,8 @@ int getDestAddr(char *argv, struct sockaddr_in *addrDest, char *buffer){
                     sizeof(sbuf), NI_NAMEREQD) == 0){
                     memcpy(buffer, hbuf, sizeof(hbuf));
             }
+            if(verboseMode)
+                printf("ai->ai_family: AF_INET, ai->ai_canonname: '%s'\n", argv);
             freeaddrinfo(result);
             return 0;
         }
@@ -140,6 +143,7 @@ int main(int argc, char *argv[]){
     uint8_t ttl = 0;
     int icmp_socket = 0;
     int index = 1;
+    bool verboseMode = false;
     struct ping_struct ping_struct = {
         .sequence = 1,
         .packet_send = 0,
@@ -147,7 +151,7 @@ int main(int argc, char *argv[]){
         .packet_loss = 0,
     };
     
-    int ret = check_args(argc, argv, &index);
+    int ret = check_args(argc, argv, &index, &verboseMode);
     if(ret != 0){
         return (ret);
     }
@@ -158,7 +162,7 @@ int main(int argc, char *argv[]){
     
     sigaction(SIGINT, &act, NULL);
 
-    ret = getDestAddr(argv[index], &dest_addr, destHostname);
+    ret = getDestAddr(argv[index], &dest_addr, destHostname, verboseMode);
     if(ret != 0){
         return ret;
     }
@@ -206,7 +210,7 @@ int main(int argc, char *argv[]){
         }else if(icmpresp.code == 0 && icmpresp.type == 8 && strcmp(hostIp, targetIp)) {
             printf("From %s icmp_seq=%d Destination Host Unreachable\n", hostIp, ping_struct.sequence);
         }
-        else{
+        else if(icmpresp.code == 0 && icmpresp.type == 0){
             float timePacket = (get_timestamp() - time) * 1000;
             printf("%d bytes from %s (%s): icmp_seq=%d ttl=%d time=%.2f ms\n",
                  size, destHostname, targetIp, icmpresp.un.echo.sequence, ttl, timePacket);

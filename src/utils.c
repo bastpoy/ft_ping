@@ -18,7 +18,7 @@ bool detect_help_parameter(char *argv){
     return false;
 }
 
-int check_args(int argc, char *argv[], int *index){
+int check_args(int argc, char *argv[], int *index, bool *verboseMode){
     if(argc < 2){
         printf("ping: usage error: Destination address required\n");
         return 2;
@@ -30,6 +30,7 @@ int check_args(int argc, char *argv[], int *index){
         }
         else if(detect_help_parameter(argv[1])){
             print_help();
+            return 2;
         }
         return 0;
     }
@@ -38,14 +39,13 @@ int check_args(int argc, char *argv[], int *index){
         return 2;
     }
     else{
-        bool verbosearg = false;
         for(int i = 1; i < argc; i++){
             if(detect_help_parameter(argv[i])){
                 print_help();
                 return 2;
             }
             else if(!strcmp(argv[i], "-v")){
-                if(verbosearg == true){
+                if(*verboseMode == true){
                     printf("ping: usage error: Destination address required\n");
                     return 1;
                 }
@@ -53,11 +53,13 @@ int check_args(int argc, char *argv[], int *index){
                     *index = 2;
                 else
                     *index = 1;
-                verbosearg = true;
+                *verboseMode = true;
             }
         }
-        if(verbosearg == true)
+        if(*verboseMode == true){
+            printf("ping: sock4.fd: 3 (socktype: SOCK_DGRAM), sock6.fd: 4 (socktype: SOCK_DGRAM), hints.ai_family: AF_UNSPEC\n\n");
             return 0;
+        }
         printf("ping: %s: Name or service not known\n", argv[2]);
         return 2;
     }

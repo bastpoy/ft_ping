@@ -6,13 +6,13 @@ NAME = ft_ping
 
 SRCDIR = src
 OBJDIR = obj
-BINDIR = output
+BINDIR = .
 BIN = $(BINDIR)/$(NAME)
 
 SRCS = $(wildcard $(SRCDIR)/*.c)
 OBJS = $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SRCS))
 
-all: $(BIN)
+all: $(NAME)
 
 $(BIN): $(OBJS) | $(BINDIR)
 	$(CC) $(CFLAGS) $(OBJS) -o $(BIN) $(LDFLAGS)

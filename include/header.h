@@ -36,7 +36,7 @@ float find_mean_deviation(float *array,  int size);
 
 //utils
 void print_help();
-int check_args(int argc, char *argv[], int *index);
+int check_args(int argc, char *argv[], int *index, bool *verboseMode);
 void print_result_ping(struct ping_struct ping_struct, float *rttptr, int sequence, double timeStart, char *arg);
 double get_timestamp();
 void free_msg_rttptr(uint8_t *msg, float *rttptr);
