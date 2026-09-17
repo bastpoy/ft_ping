@@ -132,7 +132,9 @@ void create_packet(struct icmphdr *packet, struct ping_struct ping_struct, uint8
     packet = (struct icmphdr*)msg;
     double *timestamp = (double *)(packet + 1);
     *timestamp = get_timestamp();
-    packet->checksum = checksum(msg, 16);
+    memset(msg + sizeof(struct icmphdr) + sizeof(double), 0xA5,
+        56 - sizeof(double));
+    packet->checksum = checksum(msg, 64);
 }
 
 int main(int argc, char *argv[]){
@@ -158,6 +160,16 @@ int main(int argc, char *argv[]){
     if(ret != 0){
         return (ret);
     }
+
+    icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (icmp_socket < 0){
+        printf("error creating socket: %s\n", strerror(errno));
+        return(1);
+    }
+    struct timeval tv;
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+    setsockopt(icmp_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     
     struct sigaction act;
     bzero(&act, sizeof(act));
@@ -172,24 +184,17 @@ int main(int argc, char *argv[]){
     inet_ntop(dest_addr.sin_family, &dest_addr.sin_addr, targetIp, sizeof(targetIp));
     get_my_ip(hostIp);
 
-    uint8_t *msg = malloc(sizeof(struct icmphdr) + 8);
+    uint8_t *msg = malloc(sizeof(struct icmphdr) + 56);
     struct icmphdr *packet = (struct icmphdr*)msg;
     float *rttptr = malloc(sizeof(float) * sizeRtt);
 
-    printf("PING %s (%s) %d bytes of data\n", argv[index], targetIp, 36);
-    double timestart = get_timestamp(); 
+    printf("PING %s (%s) %d(%d) bytes of data\n", argv[index], targetIp, 56, 84);
+    double timestart = get_timestamp();
 
     while(interrupted != 1){
-
-        icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-        if (icmp_socket < 0){
-            printf("error creating socket: %s\n", strerror(errno));
-            free_msg_rttptr(msg, rttptr);
-            return(1);
-        }
         create_packet(packet, ping_struct, msg);
 
-        int size = sendto(icmp_socket, packet, 16, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)); 
+        int size = sendto(icmp_socket, packet, 64, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)); 
         if(size < 1){
             printf("Error sendto: %s\n", strerror(errno));
             free_msg_rttptr(msg, rttptr);
@@ -197,15 +202,26 @@ int main(int argc, char *argv[]){
         }else{
             ping_struct.packet_send += 1;
         }
-        
         char buffer[1024] = "\0";
         socklen_t lenDest = sizeof(dest_addr);
         size = recvfrom(icmp_socket, buffer, 1024, 0, (struct sockaddr *)&dest_addr, &lenDest);
         if(size < 0){
+            if (errno == EAGAIN || errno == EWOULDBLOCK){
+                printf("je suis bien la dans le timeout\n");
+                ping_struct.sequence += 1;
+                continue;
+            }
+            if (errno == EINTR) {
+                close(icmp_socket);
+                break;
+            }
             printf("error receviving message: %s\n", strerror(errno));
             free_msg_rttptr(msg, rttptr);
             return 1;
         }
+        struct iphdr *ip = (struct iphdr *)buffer;
+        int ip_header_len = ip->ihl * 4;
+
         extract_message(buffer, &icmpresp, &time, &ttl);
 
         if(icmpresp.code == 1 && icmpresp.type == 3){
@@ -216,11 +232,11 @@ int main(int argc, char *argv[]){
         else if(icmpresp.code == 0 && icmpresp.type == 0){
             float timePacket = (get_timestamp() - time) * 1000;
             printf("%d bytes from %s (%s): icmp_seq=%d ttl=%d time=%.2f ms\n",
-                 size, destHostname, targetIp, icmpresp.un.echo.sequence, ttl, timePacket);
+                 size - ip_header_len, destHostname, targetIp, icmpresp.un.echo.sequence, ttl, timePacket);
             ping_struct.packet_receive += 1;
+            printf("j'ajoute le paquet %f\n", timePacket);
             add_time_rtt(&rttptr, timePacket, ping_struct.sequence - 1, &sizeRtt);
         }
-        close(icmp_socket);
         sleep(1);
         ping_struct.sequence += 1;
     }

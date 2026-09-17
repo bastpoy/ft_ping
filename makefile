@@ -28,12 +28,10 @@ $(BINDIR):
 
 clean:
 	rm -f $(OBJDIR)/*.o
-	rm -f *.o
 
 fclean: clean
 	rm -f $(BIN)
 	rm -rf $(OBJDIR)
-	rm -rf $(BINDIR)
 
 re: fclean all
 
