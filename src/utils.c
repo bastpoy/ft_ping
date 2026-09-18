@@ -10,7 +10,7 @@ void print_help(){
 bool detect_help_parameter(char *argv){
     if(argv[0] == '-'){
         for(int i = 1; i < (int)strlen(argv); i++){
-            if(argv[i] == 'h'){
+            if(argv[i] == 'h' || argv[i] == '?'){
                 return true;
             }
         }
@@ -74,11 +74,12 @@ double get_timestamp(){
 
 void print_result_ping(struct ping_struct ping_struct, float *rttptr, int sequence, double timeStart, char *arg){
     printf("\n--- %s ping statistics ---  \n", arg);
-    float packet_loss = ((ping_struct.packet_send - ping_struct.packet_receive) / ping_struct.packet_send) * 100.0 ;
+    float packet_loss = ((float)(ping_struct.packet_send - ping_struct.packet_receive) / (float)ping_struct.packet_send) * 100.0 ;
     printf("%d packets transmitted, %d received, %0.0f%% packet loss, time %0.2fms\n", 
         ping_struct.packet_send, ping_struct.packet_receive, packet_loss, (get_timestamp() - timeStart) * 1000);
-    printf("rtt min/avg/max/mdev = %0.3f/%0.3f/%0.3f/%0.3f ms\n", 
-        find_min(rttptr, sequence - 1), find_avg(rttptr, sequence - 1), find_max(rttptr, sequence - 1), find_mean_deviation(rttptr, sequence -1));    
+    if(ping_struct.packet_receive > 0)
+        printf("rtt min/avg/max/mdev = %0.3f/%0.3f/%0.3f/%0.3f ms\n", 
+            find_min(rttptr, sequence), find_avg(rttptr, sequence), find_max(rttptr, sequence), find_mean_deviation(rttptr, sequence));    
 }
 
 void free_msg_rttptr(uint8_t *msg, float *rttptr){

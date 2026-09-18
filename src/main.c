@@ -64,7 +64,7 @@ int getDestAddr(char *argv, struct sockaddr_in *addrDest, char *buffer, bool ver
     int ret = getaddrinfo(argv, NULL, &hints, &result);
     if(ret != 0){
         if(ret == -2){
-            printf("ping: %s: Name or service not known\n", argv);
+            printf("ping: %s: unknown host\n", argv);
         }
         else if (ret == -3){
             printf("ping: %s: Temporary failure in name resolution\n", argv);
@@ -148,6 +148,7 @@ int main(int argc, char *argv[]){
     uint8_t ttl = 0;
     int icmp_socket = 0;
     int index = 1;
+    int indexrtt = 0;
     bool verboseMode = false;
     struct ping_struct ping_struct = {
         .sequence = 1,
@@ -207,7 +208,6 @@ int main(int argc, char *argv[]){
         size = recvfrom(icmp_socket, buffer, 1024, 0, (struct sockaddr *)&dest_addr, &lenDest);
         if(size < 0){
             if (errno == EAGAIN || errno == EWOULDBLOCK){
-                printf("je suis bien la dans le timeout\n");
                 ping_struct.sequence += 1;
                 continue;
             }
@@ -234,14 +234,14 @@ int main(int argc, char *argv[]){
             printf("%d bytes from %s (%s): icmp_seq=%d ttl=%d time=%.2f ms\n",
                  size - ip_header_len, destHostname, targetIp, icmpresp.un.echo.sequence, ttl, timePacket);
             ping_struct.packet_receive += 1;
-            printf("j'ajoute le paquet %f\n", timePacket);
-            add_time_rtt(&rttptr, timePacket, ping_struct.sequence - 1, &sizeRtt);
+            add_time_rtt(&rttptr, timePacket, indexrtt, &sizeRtt);
         }
         sleep(1);
         ping_struct.sequence += 1;
+        indexrtt += 1;
     }
     
-    print_result_ping(ping_struct, rttptr, ping_struct.sequence, timestart, argv[index]);
+    print_result_ping(ping_struct, rttptr, indexrtt, timestart, argv[index]);
     free_msg_rttptr(msg, rttptr);
     return (0);
 }

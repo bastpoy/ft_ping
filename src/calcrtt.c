@@ -38,6 +38,8 @@ float find_mean_deviation(float *array, int size){
     for(int i = 0; i < size; i++){
         sum += fabs(mean - array[i]);
     }
+    if(!sum)
+        return 0.0;
     float deviateMean = sum / (size);
     return deviateMean;
 }
@@ -47,5 +49,7 @@ float find_avg(float *array, int size){
     for(int i = 0; i < size; i++){
         sum += array[i];
     }
+    if(!sum)
+        return 0.0;
     return sum /(size);
 }
