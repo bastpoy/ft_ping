@@ -36,9 +36,16 @@ float find_mean_deviation(float *array,  int size);
 
 //utils
 void print_help();
+uint16_t checksum(void *addr, size_t len);
 int check_args(int argc, char *argv[], int *index, bool *verboseMode);
 void print_result_ping(struct ping_struct ping_struct, float *rttptr, int sequence, double timeStart, char *arg);
 double get_timestamp();
 void free_msg_rttptr(uint8_t *msg, float *rttptr);
+
+// data
+
+void extract_message(void *pkt, struct icmphdr *msg, double *value, uint8_t *ttl);
+void add_time_rtt(float **ptr, float time, int index, int *ptrSize);
+bool extract_time_exceeded(struct icmphdr *icmp, int expected_seq);
 
 #endif

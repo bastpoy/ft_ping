@@ -82,6 +82,23 @@ void print_result_ping(struct ping_struct ping_struct, float *rttptr, int sequen
             find_min(rttptr, sequence), find_avg(rttptr, sequence), find_max(rttptr, sequence), find_mean_deviation(rttptr, sequence));    
 }
 
+uint16_t checksum(void *addr, size_t len) {
+    uint16_t *word = addr;
+    uint32_t result = 0;
+
+    for (long unsigned int i = 0; i < len / sizeof(uint16_t); i++) {
+        result += *(word + i);
+    }
+    if (len % 2 == 1) {
+        result += *((uint8_t *)addr + len - 1);
+    }
+    result = (result >> 16) + (result & 0xffff);
+    
+    result = (result >> 16) + (result & 0xffff);
+    return ~result;
+}
+
+
 void free_msg_rttptr(uint8_t *msg, float *rttptr){
     free(msg);
     free(rttptr);
