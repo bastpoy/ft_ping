@@ -127,7 +127,7 @@ void create_packet(struct icmphdr *packet, struct ping_struct ping_struct, uint8
     packet->type = ICMP_ECHO; 
     packet->code = 0;
     packet->un.echo.id = getpid();
-    packet->un.echo.sequence = ping_struct.sequence;
+    packet->un.echo.sequence = htons(ping_struct.sequence);
     packet->checksum = 0;
     packet = (struct icmphdr*)msg;
     double *timestamp = (double *)(packet + 1);
@@ -135,6 +135,30 @@ void create_packet(struct icmphdr *packet, struct ping_struct ping_struct, uint8
     memset(msg + sizeof(struct icmphdr) + sizeof(double), 0xA5,
         56 - sizeof(double));
     packet->checksum = checksum(msg, 64);
+}
+
+bool extract_time_exceeded(struct icmphdr *icmp, int expected_seq)
+{
+    if(icmp->type != ICMP_TIME_EXCEEDED)
+    return false;
+    
+    struct iphdr *original_ip =
+    (struct iphdr *)((uint8_t *)icmp + sizeof(struct icmphdr));
+    
+    int original_ip_len = original_ip->ihl * 4;
+    
+    struct icmphdr *original_icmp =
+    (struct icmphdr *)(
+        (uint8_t *)original_ip + original_ip_len
+    );
+    
+    if(original_icmp->type != ICMP_ECHO)
+        return false;
+    if(original_icmp->un.echo.id != getpid())
+        return false;
+    if(ntohs(original_icmp->un.echo.sequence) != expected_seq)
+        return false;
+    return true;
 }
 
 int main(int argc, char *argv[]){
@@ -208,8 +232,11 @@ int main(int argc, char *argv[]){
             ping_struct.packet_send += 1;
         }
         char buffer[1024] = "\0";
-        socklen_t lenDest = sizeof(dest_addr);
-        size = recvfrom(icmp_socket, buffer, 1024, 0, (struct sockaddr *)&dest_addr, &lenDest);
+        // socklen_t lenDest = sizeof(dest_addr);
+        // size = recvfrom(icmp_socket, buffer, 1024, 0, (struct sockaddr *)&dest_addr, &lenDest);
+        struct sockaddr_in sender;
+        socklen_t sender_len = sizeof(sender);
+        size = recvfrom(icmp_socket, buffer, sizeof(buffer), 0, (struct sockaddr *)&sender, &sender_len);
         if(size < 0){
             if (errno == EAGAIN || errno == EWOULDBLOCK){
                 ping_struct.sequence += 1;
@@ -227,8 +254,27 @@ int main(int argc, char *argv[]){
         int ip_header_len = ip->ihl * 4;
 
         extract_message(buffer, &icmpresp, &time, &ttl);
+        struct icmphdr *icmp_ptr = (struct icmphdr *)(buffer + ip_header_len);
+        
+        if(icmpresp.code == 0 && icmpresp.type == 11) {
+            if (extract_time_exceeded(icmp_ptr, ping_struct.sequence)){
+                ping_struct.sequence += 1;
+                char routerIp[INET_ADDRSTRLEN];
+                char routerHostname[NI_MAXHOST] = "\0";
+                inet_ntop(AF_INET, &sender.sin_addr, routerIp, sizeof(routerIp));
 
-        if(icmpresp.code == 1 && icmpresp.type == 3){
+                if (getnameinfo((struct sockaddr *)&sender, sender_len,
+                                routerHostname, sizeof(routerHostname),
+                                NULL, 0, NI_NAMEREQD) != 0) {
+                    strncpy(routerHostname, routerIp, sizeof(routerHostname));
+                }
+
+                printf("From %s (%s) icmp_seq=%d Time to live exceeded\n", routerHostname, routerIp, ping_struct.sequence);
+                sleep(1);
+                continue;
+            }
+        }
+        else if(icmpresp.code == 1 && icmpresp.type == 3){
             printf("From %s icmp_seq=%d Destination Host Unreachable\n", hostIp, ping_struct.sequence);
         }else if(icmpresp.code == 0 && icmpresp.type == 8 && strcmp(hostIp, targetIp)) {
             printf("From %s icmp_seq=%d Destination Host Unreachable\n", hostIp, ping_struct.sequence);
