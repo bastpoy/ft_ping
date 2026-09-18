@@ -146,6 +146,7 @@ int main(int argc, char *argv[]){
     char destHostname[NI_MAXHOST] = "\0";
     double time;
     uint8_t ttl = 0;
+    int ttl1 = 1;
     int icmp_socket = 0;
     int index = 1;
     int indexrtt = 0;
@@ -171,7 +172,10 @@ int main(int argc, char *argv[]){
     tv.tv_sec = 1;
     tv.tv_usec = 0;
     setsockopt(icmp_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    
+    if (setsockopt(icmp_socket, IPPROTO_IP, IP_TTL, &ttl1, sizeof(ttl1)) < 0) {
+        perror("setsockopt IP_TTL");
+        // gérer l'erreur
+    }
     struct sigaction act;
     bzero(&act, sizeof(act));
     act.sa_handler = &sigint_handler;
