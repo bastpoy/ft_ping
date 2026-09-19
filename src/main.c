@@ -48,13 +48,13 @@ int getDestAddr(char *argv, struct sockaddr_in *addrDest, char *buffer, bool ver
     int ret = getaddrinfo(argv, NULL, &hints, &result);
     if(ret != 0){
         if(ret == -2){
-            printf("ping: %s: unknown host\n", argv);
+            printf("ping: unknown host\n");
         }
         else if (ret == -3){
             printf("ping: %s: Temporary failure in name resolution\n", argv);
         }
         else if (ret == -5){
-            printf("ping: %s: No address associated with hostname\n", argv);
+            printf("ping: unknown host\n");
         }
         else{
             printf("ping: %s: No address associated with hostname\n", argv);
@@ -111,7 +111,6 @@ int main(int argc, char *argv[]){
     char destHostname[NI_MAXHOST] = "\0";
     double time;
     uint8_t ttl = 0;
-    int ttl1 = 1;
     int icmp_socket = 0;
     int index = 1;
     int indexrtt = 0;
@@ -137,10 +136,11 @@ int main(int argc, char *argv[]){
     tv.tv_sec = 1;
     tv.tv_usec = 0;
     setsockopt(icmp_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    if (setsockopt(icmp_socket, IPPROTO_IP, IP_TTL, &ttl1, sizeof(ttl1)) < 0) {
-        strerror(errno);
-        return errno;
-    }
+    // int ttl1 = 1;
+    // if (setsockopt(icmp_socket, IPPROTO_IP, IP_TTL, &ttl1, sizeof(ttl1)) < 0) {
+    //     strerror(errno);
+    //     return errno;
+    // }
     struct sigaction act;
     bzero(&act, sizeof(act));
     act.sa_handler = &sigint_handler;
@@ -164,7 +164,6 @@ int main(int argc, char *argv[]){
     while(interrupted != 1){
         create_packet(packet, ping_struct, msg);
 
-        // printf("id du paquet envoyé %d et sequence %d\n", packet->un.echo.id, packet->un.echo.sequence);
         int size = sendto(icmp_socket, packet, 64, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)); 
         if(size < 1){
             printf("Error sendto: %s\n", strerror(errno));

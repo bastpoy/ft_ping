@@ -78,7 +78,7 @@ void print_result_ping(struct ping_struct ping_struct, float *rttptr, int sequen
     printf("%d packets transmitted, %d received, %0.0f%% packet loss, time %0.2fms\n", 
         ping_struct.packet_send, ping_struct.packet_receive, packet_loss, (get_timestamp() - timeStart) * 1000);
     if(ping_struct.packet_receive > 0)
-        printf("rtt min/avg/max/mdev = %0.3f/%0.3f/%0.3f/%0.3f ms\n", 
+        printf("round-trip min/avg/max/mdev = %0.3f/%0.3f/%0.3f/%0.3f ms\n", 
             find_min(rttptr, sequence), find_avg(rttptr, sequence), find_max(rttptr, sequence), find_mean_deviation(rttptr, sequence));    
 }
 
