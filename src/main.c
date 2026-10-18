@@ -235,3 +235,9 @@ int main(int argc, char *argv[]){
     free_msg_rttptr(msg, rttptr);
     return (0);
 }
+
+// have to do the print of ip header and icmp when -v is activate
+// Have to do the parse of -v -? options
+// maybe implement the -ttl bonus
+// Reimplement the code in main.
+// using the getopt function
