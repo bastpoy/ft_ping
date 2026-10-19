@@ -5,17 +5,6 @@ void print_help(){
         "  -h\t\t\tprint help and exit\n");
 }
 
-bool detect_help_parameter(char *argv){
-    if(argv[0] == '-'){
-        for(int i = 1; i < (int)strlen(argv); i++){
-            if(argv[i] == 'h' || argv[i] == '?'){
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 double get_timestamp(){
     struct timeval tv;
     gettimeofday(&tv, NULL);

@@ -102,15 +102,30 @@ void create_packet(struct icmphdr *packet, struct ping_struct ping_struct, uint8
     packet->checksum = checksum(msg, 64);
 }
 
+int is_excedeed_unreach(struct icmphdr *icmp, struct icmphdr *packet, struct iphdr *ip, int size, int ip_header_len){
+    struct iphdr   *in_ip   = (struct iphdr *)((char *)icmp + sizeof(struct icmphdr));
+    int             in_hlen = in_ip->ihl * 4;
+    struct icmphdr *in_icmp = (struct icmphdr *)((char *)in_ip + in_hlen);
+
+    if (in_icmp->un.echo.id != packet->un.echo.id)
+        return 1;
+
+    struct in_addr src = { .s_addr = ip->saddr };   /* who sent the error */
+
+    if (icmp->type == ICMP_DEST_UNREACH && icmp->code == ICMP_HOST_UNREACH)
+        printf("From %s icmp_seq=%d Destination Host Unreachable\n",
+            inet_ntoa(src), ntohs(in_icmp->un.echo.sequence));
+    else if (icmp->type == ICMP_TIME_EXCEEDED)
+        printf("%d bytes from %s: Time to live exceeded\n",
+            size - ip_header_len, inet_ntoa(src));
+    return 0;
+}
+
 int main(int argc, char *argv[]){
     struct sockaddr_in dest_addr;
-    struct icmphdr icmpresp;
     int sizeRtt = 3;
-    char targetIp[INET_ADDRSTRLEN] = "\0";;
-    char hostIp[INET_ADDRSTRLEN] = "\0";
+    char targetIp[INET_ADDRSTRLEN] = "\0";
     char destHostname[NI_MAXHOST] = "\0";
-    double time;
-    uint8_t ttl = 0;
     int indexrtt = 0;
     struct ping_ctx ctx;
     int ret = init_ctx(&ctx, argc, argv);
@@ -128,7 +143,6 @@ int main(int argc, char *argv[]){
         return ret;
     }
     inet_ntop(dest_addr.sin_family, &dest_addr.sin_addr, targetIp, sizeof(targetIp));
-    get_my_ip(hostIp);
 
     uint8_t *msg = malloc(sizeof(struct icmphdr) + 56);
     struct icmphdr *packet = (struct icmphdr*)msg;
@@ -168,45 +182,29 @@ int main(int argc, char *argv[]){
         
         struct iphdr *ip = (struct iphdr *)buffer;
         int ip_header_len = ip->ihl * 4;
-        
-        extract_message(buffer, &icmpresp, &time, &ttl);
-        struct icmphdr *icmp_ptr = (struct icmphdr *)(buffer + ip_header_len);
-        
-        if(icmp_ptr->un.echo.id == packet->un.echo.id && 
-            icmp_ptr->un.echo.sequence == packet->un.echo.sequence){
-            if(icmpresp.code == 1 && icmpresp.type == 3){
-                printf("From %s icmp_seq=%d Destination Host Unreachable\n", hostIp, ntohs(ctx.stats.sequence));
-            }else if(icmpresp.code == 0 && icmpresp.type == 8 && strcmp(hostIp, targetIp)) {
-                printf("From %s icmp_seq=%d Destination Host Unreachable\n", hostIp, ntohs(ctx.stats.sequence));
-            }
-            else if(icmpresp.code == 0 && icmpresp.type == 0){
-                float timePacket = (get_timestamp() - time) * 1000;
-                printf("%d bytes from %s (%s): icmp_seq=%d ttl=%d time=%.2f ms\n",
-                     size - ip_header_len, destHostname, targetIp, ntohs(icmpresp.un.echo.sequence), ttl, timePacket);
-                ctx.stats.packet_receive += 1;
-                add_time_rtt(&rttptr, timePacket, indexrtt, &sizeRtt);
-            }
+        struct icmphdr *icmp = (struct icmphdr *)(buffer + ip_header_len);
+
+        if (icmp->type == ICMP_ECHOREPLY) {
+            if (icmp->un.echo.id != packet->un.echo.id)
+                continue;
+            double time;
+
+            memcpy(&time, (char *)icmp + sizeof(struct icmphdr), sizeof(double));
+            float timePacket = (get_timestamp() - time) * 1000;
+            printf("%d bytes from %s (%s): icmp_seq=%d ttl=%d time=%.2f ms\n",
+                    size - ip_header_len, destHostname, targetIp, ntohs(icmp->un.echo.sequence), ip->ttl, timePacket);
+            ctx.stats.packet_receive += 1;
+            add_time_rtt(&rttptr, timePacket, indexrtt, &sizeRtt);
         }
-        else if(extract_time_exceeded(icmp_ptr, ctx.stats.sequence)){
-            char routerIp[INET_ADDRSTRLEN];
-            char routerHostname[NI_MAXHOST] = "\0";
-            inet_ntop(AF_INET, &sender.sin_addr, routerIp, sizeof(routerIp));
-            
-            if (getnameinfo((struct sockaddr *)&sender, sender_len,
-            routerHostname, sizeof(routerHostname),
-            NULL, 0, NI_NAMEREQD) != 0) {
-                strncpy(routerHostname, routerIp, sizeof(routerHostname));
-            }
-            
-            printf("From %s (%s) icmp_seq=%d Time to live exceeded\n", routerHostname, routerIp, ctx.stats.sequence);
-            ctx.stats.sequence += 1;
-            sleep(1);
-            continue;
+        else if(icmp->type == ICMP_DEST_UNREACH || 
+                icmp->type == ICMP_TIME_EXCEEDED){
+            if(is_excedeed_unreach(icmp, packet, ip, size, ip_header_len))
+                continue;
         }
         sleep(1);
         ctx.stats.sequence += 1;
         indexrtt += 1;
-    }
+    } 
     
     print_result_ping(ctx.stats, rttptr, indexrtt, timestart, argv[ctx.index]);
     free_msg_rttptr(msg, rttptr);

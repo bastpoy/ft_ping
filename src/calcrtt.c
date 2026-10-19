@@ -53,3 +53,11 @@ float find_avg(float *array, int size){
         return 0.0;
     return sum /(size);
 }
+
+void add_time_rtt(float **ptr, float time, int index, int *ptrSize){
+    if(index >= *ptrSize){
+        *ptrSize = *ptrSize + 15;
+        *ptr = (float*)realloc(*ptr, (*ptrSize) * sizeof(float));
+    }
+    (*ptr)[index] = time;
+}
