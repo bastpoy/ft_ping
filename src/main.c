@@ -213,6 +213,8 @@ int main(int argc, char *argv[]){
     return (0);
 }
 
-// shorten the main
-// trigger the host unreachable
-// 
+// have to do the print of ip header and icmp when -v is activate
+// Have to do the parse of -v -? options
+// maybe implement the -ttl bonus
+// Reimplement the code in main.
+// using the getopt function
