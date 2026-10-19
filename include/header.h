@@ -17,6 +17,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <math.h>
+#include <getopt.h>
 
 #define ICMP_MINLEN 8
 
@@ -28,16 +29,35 @@ struct ping_struct{
     float packet_loss;
 };
 
+struct arguments {
+    bool verbose;
+    int ttl;
+};
+
+struct addr_src_host {
+
+};
+
+struct ping_ctx {
+    int                 socket;
+    int                 index;
+    struct arguments    args;
+    struct ping_struct  stats;
+};
+
 //calc rtt
 float find_min(float *array, int size);
 float find_avg(float *array, int size);
 float find_max(float *array, int size);
 float find_mean_deviation(float *array,  int size);
 
+//Initializing
+int init_ctx(struct ping_ctx *ctx, int argc, char **argv);
+int check_args(int argc, char *argv[], struct ping_ctx *ctx);
+
 //utils
 void print_help();
 uint16_t checksum(void *addr, size_t len);
-int check_args(int argc, char *argv[], int *index, bool *verboseMode);
 void print_result_ping(struct ping_struct ping_struct, float *rttptr, int sequence, double timeStart, char *arg);
 double get_timestamp();
 void free_msg_rttptr(uint8_t *msg, float *rttptr);

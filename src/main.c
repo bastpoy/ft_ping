@@ -111,43 +111,19 @@ int main(int argc, char *argv[]){
     char destHostname[NI_MAXHOST] = "\0";
     double time;
     uint8_t ttl = 0;
-    int icmp_socket = 0;
-    int index = 1;
     int indexrtt = 0;
-    bool verboseMode = false;
-    struct ping_struct ping_struct = {
-        .sequence = 1,
-        .packet_send = 0,
-        .packet_receive = 0,
-        .packet_loss = 0,
-    };
-    
-    int ret = check_args(argc, argv, &index, &verboseMode);
-    if(ret != 0){
+    struct ping_ctx ctx;
+    int ret = init_ctx(&ctx, argc, argv);
+    if (ret != 0)
         return (ret);
-    }
 
-    icmp_socket = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if (icmp_socket < 0){
-        printf("error creating socket: %s\n", strerror(errno));
-        return(1);
-    }
-    struct timeval tv;
-    tv.tv_sec = 1;
-    tv.tv_usec = 0;
-    setsockopt(icmp_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    // int ttl1 = 1;
-    // if (setsockopt(icmp_socket, IPPROTO_IP, IP_TTL, &ttl1, sizeof(ttl1)) < 0) {
-    //     strerror(errno);
-    //     return errno;
-    // }
     struct sigaction act;
     bzero(&act, sizeof(act));
     act.sa_handler = &sigint_handler;
     
     sigaction(SIGINT, &act, NULL);
 
-    ret = getDestAddr(argv[index], &dest_addr, destHostname, verboseMode);
+    ret = getDestAddr(argv[ctx.index], &dest_addr, destHostname, ctx.args.verbose);
     if(ret != 0){
         return ret;
     }
@@ -158,31 +134,31 @@ int main(int argc, char *argv[]){
     struct icmphdr *packet = (struct icmphdr*)msg;
     float *rttptr = malloc(sizeof(float) * sizeRtt);
 
-    printf("PING %s (%s) %d(%d) bytes of data\n", argv[index], targetIp, 56, 84);
+    printf("PING %s (%s) %d(%d) bytes of data\n", argv[ctx.index], targetIp, 56, 84);
     double timestart = get_timestamp();
 
     while(interrupted != 1){
-        create_packet(packet, ping_struct, msg);
+        create_packet(packet, ctx.stats, msg);
 
-        int size = sendto(icmp_socket, packet, 64, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)); 
+        int size = sendto(ctx.socket, packet, 64, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)); 
         if(size < 1){
             printf("Error sendto: %s\n", strerror(errno));
             free_msg_rttptr(msg, rttptr);
             return(1);
         }else{
-            ping_struct.packet_send += 1;
+            ctx.stats.packet_send += 1;
         }
         char buffer[1024] = "\0";
         struct sockaddr_in sender;
         socklen_t sender_len = sizeof(sender);
-        size = recvfrom(icmp_socket, buffer, sizeof(buffer), 0, (struct sockaddr *)&sender, &sender_len);
+        size = recvfrom(ctx.socket, buffer, sizeof(buffer), 0, (struct sockaddr *)&sender, &sender_len);
         if(size < 0){
             if (errno == EAGAIN || errno == EWOULDBLOCK){
-                ping_struct.sequence += 1;
+                ctx.stats.sequence += 1;
                 continue;
             }
             if (errno == EINTR) {
-                close(icmp_socket);
+                close(ctx.socket);
                 break;
             }
             printf("error receviving message: %s\n", strerror(errno));
@@ -196,21 +172,22 @@ int main(int argc, char *argv[]){
         extract_message(buffer, &icmpresp, &time, &ttl);
         struct icmphdr *icmp_ptr = (struct icmphdr *)(buffer + ip_header_len);
         
-        if(icmp_ptr->un.echo.id == packet->un.echo.id && icmp_ptr->un.echo.sequence == packet->un.echo.sequence){
+        if(icmp_ptr->un.echo.id == packet->un.echo.id && 
+            icmp_ptr->un.echo.sequence == packet->un.echo.sequence){
             if(icmpresp.code == 1 && icmpresp.type == 3){
-                printf("From %s icmp_seq=%d Destination Host Unreachable\n", hostIp, ntohs(ping_struct.sequence));
+                printf("From %s icmp_seq=%d Destination Host Unreachable\n", hostIp, ntohs(ctx.stats.sequence));
             }else if(icmpresp.code == 0 && icmpresp.type == 8 && strcmp(hostIp, targetIp)) {
-                printf("From %s icmp_seq=%d Destination Host Unreachable\n", hostIp, ntohs(ping_struct.sequence));
+                printf("From %s icmp_seq=%d Destination Host Unreachable\n", hostIp, ntohs(ctx.stats.sequence));
             }
             else if(icmpresp.code == 0 && icmpresp.type == 0){
                 float timePacket = (get_timestamp() - time) * 1000;
                 printf("%d bytes from %s (%s): icmp_seq=%d ttl=%d time=%.2f ms\n",
                      size - ip_header_len, destHostname, targetIp, ntohs(icmpresp.un.echo.sequence), ttl, timePacket);
-                ping_struct.packet_receive += 1;
+                ctx.stats.packet_receive += 1;
                 add_time_rtt(&rttptr, timePacket, indexrtt, &sizeRtt);
             }
         }
-        else if(extract_time_exceeded(icmp_ptr, ping_struct.sequence)){
+        else if(extract_time_exceeded(icmp_ptr, ctx.stats.sequence)){
             char routerIp[INET_ADDRSTRLEN];
             char routerHostname[NI_MAXHOST] = "\0";
             inet_ntop(AF_INET, &sender.sin_addr, routerIp, sizeof(routerIp));
@@ -221,17 +198,21 @@ int main(int argc, char *argv[]){
                 strncpy(routerHostname, routerIp, sizeof(routerHostname));
             }
             
-            printf("From %s (%s) icmp_seq=%d Time to live exceeded\n", routerHostname, routerIp, ping_struct.sequence);
-            ping_struct.sequence += 1;
+            printf("From %s (%s) icmp_seq=%d Time to live exceeded\n", routerHostname, routerIp, ctx.stats.sequence);
+            ctx.stats.sequence += 1;
             sleep(1);
             continue;
         }
         sleep(1);
-        ping_struct.sequence += 1;
+        ctx.stats.sequence += 1;
         indexrtt += 1;
     }
     
-    print_result_ping(ping_struct, rttptr, indexrtt, timestart, argv[index]);
+    print_result_ping(ctx.stats, rttptr, indexrtt, timestart, argv[ctx.index]);
     free_msg_rttptr(msg, rttptr);
     return (0);
 }
+
+// shorten the main
+// trigger the host unreachable
+// 

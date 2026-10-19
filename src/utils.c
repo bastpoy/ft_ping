@@ -2,9 +2,7 @@
 
 void print_help(){
     printf("Usage\n  ping [options] <destination>\n\nOptions:\n  <destination>\t\tdns name or ip address\n"
-        "  -h\t\t\tprint help and exit\n"
-        "  -v\t\t\tverbose output\n\n"
-        "For more details see ping(8).\n");
+        "  -h\t\t\tprint help and exit\n");
 }
 
 bool detect_help_parameter(char *argv){
@@ -16,54 +14,6 @@ bool detect_help_parameter(char *argv){
         }
     }
     return false;
-}
-
-int check_args(int argc, char *argv[], int *index, bool *verboseMode){
-    if(argc < 2){
-        printf("ping: usage error: Destination address required\n");
-        return 2;
-    }
-    else if(argc == 2){
-        if(argv[1][0] == '-' && strlen(argv[1]) == 2 && !detect_help_parameter(argv[1])){
-            printf("ping: usage error: Destination address required\n");
-            return 1;
-        }
-        else if(detect_help_parameter(argv[1])){
-            print_help();
-            return 2;
-        }
-        return 0;
-    }
-    else if(argc > 3){
-        print_help();
-        return 2;
-    }
-    else{
-        for(int i = 1; i < argc; i++){
-            if(detect_help_parameter(argv[i])){
-                print_help();
-                return 2;
-            }
-            else if(!strcmp(argv[i], "-v")){
-                if(*verboseMode == true){
-                    printf("ping: usage error: Destination address required\n");
-                    return 1;
-                }
-                if(i == 1)
-                    *index = 2;
-                else
-                    *index = 1;
-                *verboseMode = true;
-            }
-        }
-        if(*verboseMode == true){
-            printf("ping: sock4.fd: 3 (socktype: SOCK_DGRAM), sock6.fd: 4 (socktype: SOCK_DGRAM), hints.ai_family: AF_UNSPEC\n\n");
-            return 0;
-        }
-        printf("ping: %s: Name or service not known\n", argv[2]);
-        return 2;
-    }
-    return 0;
 }
 
 double get_timestamp(){
@@ -97,7 +47,6 @@ uint16_t checksum(void *addr, size_t len) {
     result = (result >> 16) + (result & 0xffff);
     return ~result;
 }
-
 
 void free_msg_rttptr(uint8_t *msg, float *rttptr){
     free(msg);

@@ -19,6 +19,8 @@ void add_time_rtt(float **ptr, float time, int index, int *ptrSize){
     (*ptr)[index] = time;
 }
 
+// when time excedeed it return the icmp paquet with the source computer infos
+//
 bool extract_time_exceeded(struct icmphdr *icmp, int expected_seq)
 {
     if(icmp->type != ICMP_TIME_EXCEEDED)
