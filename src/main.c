@@ -2,44 +2,10 @@
 
 int interrupted = 0;
 
-struct sockaddr_in *get_my_ip(char *buffer){
-    struct ifaddrs *host_addrs = NULL;
-    struct sockaddr_in *addr= NULL;
-
-    
-    int ret = getifaddrs(&host_addrs);
-    void *ptrmec = host_addrs;
-    if(ret == -1){
-        printf("Error getting host addresses");
-        return(NULL);
-    }
-    while(host_addrs){
-
-        sa_family_t family = host_addrs->ifa_addr->sa_family;
-        addr = (struct sockaddr_in*)host_addrs->ifa_addr;
-
-        if(family == AF_INET){
-            if(strcmp(host_addrs->ifa_name, "wlp2s0") == 0){
-                if(!inet_ntop(AF_INET, &addr->sin_addr, buffer, INET_ADDRSTRLEN)){
-                    printf("Error converting address too string\n");
-                    freeifaddrs(ptrmec);
-                    return NULL;
-                }
-                freeifaddrs(ptrmec);
-                return addr;
-            }
-        }
-        host_addrs = host_addrs->ifa_next;
-    }
-    freeifaddrs(ptrmec);
-    return NULL;
-}
-
-int getDestAddr(char *argv, struct sockaddr_in *addrDest, char *buffer, bool verboseMode){
+static int getDestAddr(char *argv, struct sockaddr_in *addrDest){
     struct addrinfo hints;
     struct addrinfo *result, *rp;
     char ipstr[INET_ADDRSTRLEN];
-    char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
 
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_family = AF_UNSPEC;
@@ -47,31 +13,14 @@ int getDestAddr(char *argv, struct sockaddr_in *addrDest, char *buffer, bool ver
     
     int ret = getaddrinfo(argv, NULL, &hints, &result);
     if(ret != 0){
-        if(ret == -2){
-            printf("ping: unknown host\n");
-        }
-        else if (ret == -3){
-            printf("ping: %s: Temporary failure in name resolution\n", argv);
-        }
-        else if (ret == -5){
-            printf("ping: unknown host\n");
-        }
-        else{
-            printf("ping: %s: No address associated with hostname\n", argv);
-        }
-        return 2;
+        fprintf(stderr, "ft_ping: unknown host\n");
+        return 1;
     }
     for (rp = result; rp != NULL; rp = rp->ai_next) {
         if (rp->ai_family == AF_INET) {
             struct sockaddr_in *temp = (struct sockaddr_in *)rp->ai_addr;
             memcpy(addrDest, (struct sockaddr_in *)rp->ai_addr, sizeof(struct sockaddr_in));
             inet_ntop(rp->ai_family, &(temp->sin_addr), ipstr, sizeof(ipstr));
-            if (getnameinfo((struct sockaddr*)temp, sizeof(struct sockaddr), hbuf, sizeof(hbuf), sbuf,
-                    sizeof(sbuf), NI_NAMEREQD) == 0){
-                    memcpy(buffer, hbuf, sizeof(hbuf));
-            }
-            if(verboseMode)
-                printf("ai->ai_family: AF_INET, ai->ai_canonname: '%s'\n", argv);
             freeaddrinfo(result);
             return 0;
         }
@@ -88,8 +37,8 @@ void sigint_handler(int signal)
     }
 }
 
-void create_packet(struct icmphdr *packet, struct ping_struct ping_struct, uint8_t *msg){
-    packet->type = ICMP_ECHO; 
+static void create_packet(struct icmphdr *packet, struct ping_struct ping_struct, uint8_t *msg){
+    packet->type = ICMP_ECHO;
     packet->code = 0;
     packet->un.echo.id = getpid();
     packet->un.echo.sequence = htons(ping_struct.sequence);
@@ -102,7 +51,21 @@ void create_packet(struct icmphdr *packet, struct ping_struct ping_struct, uint8
     packet->checksum = checksum(msg, 64);
 }
 
-int is_excedeed_unreach(struct icmphdr *icmp, struct icmphdr *packet, struct iphdr *ip, int size, int ip_header_len){
+static int reverse_dns(struct in_addr addr, char *host, size_t len)
+{
+    struct sockaddr_in sa;
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_addr   = addr;
+
+    if (getnameinfo((struct sockaddr *)&sa, sizeof(sa),
+                    host, len, NULL, 0, NI_NAMEREQD) != 0)
+        return 0;
+    return 1;
+}
+
+int is_excedeed_unreach(struct icmphdr *icmp, struct icmphdr *packet, struct iphdr *ip, int size, int ip_header_len, struct ping_ctx ctx){
     struct iphdr   *in_ip   = (struct iphdr *)((char *)icmp + sizeof(struct icmphdr));
     int             in_hlen = in_ip->ihl * 4;
     struct icmphdr *in_icmp = (struct icmphdr *)((char *)in_ip + in_hlen);
@@ -110,14 +73,29 @@ int is_excedeed_unreach(struct icmphdr *icmp, struct icmphdr *packet, struct iph
     if (in_icmp->un.echo.id != packet->un.echo.id)
         return 1;
 
-    struct in_addr src = { .s_addr = ip->saddr };   /* who sent the error */
+    struct in_addr src = { .s_addr = ip->saddr };
+    char ip_str[INET_ADDRSTRLEN];
+    char host[NI_MAXHOST];
+    char from[NI_MAXHOST + INET_ADDRSTRLEN + 4];
+    int  len = size - ip_header_len;
+
+    inet_ntop(AF_INET, &src, ip_str, sizeof(ip_str));
+
+    if (reverse_dns(src, host, sizeof(host)))
+        snprintf(from, sizeof(from), "%s (%s)", host, ip_str);
+    else
+        snprintf(from, sizeof(from), "%s", ip_str);
 
     if (icmp->type == ICMP_DEST_UNREACH && icmp->code == ICMP_HOST_UNREACH)
-        printf("From %s icmp_seq=%d Destination Host Unreachable\n",
-            inet_ntoa(src), ntohs(in_icmp->un.echo.sequence));
-    else if (icmp->type == ICMP_TIME_EXCEEDED)
-        printf("%d bytes from %s: Time to live exceeded\n",
-            size - ip_header_len, inet_ntoa(src));
+        printf("%d bytes from %s: Destination Host Unreachable\n",
+            len, from);
+    else if (icmp->type == ICMP_TIME_EXCEEDED){
+        printf("%d bytes from %s: Time to live exceeded\n", len, from);
+    }
+    if (ctx.args.verbose
+    && ((icmp->type == ICMP_DEST_UNREACH && icmp->code == ICMP_HOST_UNREACH)
+        || icmp->type == ICMP_TIME_EXCEEDED))
+        print_verbose_unreach_excedeed(in_ip, in_icmp);
     return 0;
 }
 
@@ -125,12 +103,15 @@ int main(int argc, char *argv[]){
     struct sockaddr_in dest_addr;
     int sizeRtt = 3;
     char targetIp[INET_ADDRSTRLEN] = "\0";
-    char destHostname[NI_MAXHOST] = "\0";
     int indexrtt = 0;
     struct ping_ctx ctx;
     int ret = init_ctx(&ctx, argc, argv);
-    if (ret != 0)
-        return (ret);
+    if (ret != 0){
+        if(ret == PRINT_HELP){
+            return 0;
+        }
+        return ret;
+    }
 
     struct sigaction act;
     bzero(&act, sizeof(act));
@@ -138,7 +119,7 @@ int main(int argc, char *argv[]){
     
     sigaction(SIGINT, &act, NULL);
 
-    ret = getDestAddr(argv[ctx.index], &dest_addr, destHostname, ctx.args.verbose);
+    ret = getDestAddr(argv[ctx.index], &dest_addr);
     if(ret != 0){
         return ret;
     }
@@ -148,11 +129,12 @@ int main(int argc, char *argv[]){
     struct icmphdr *packet = (struct icmphdr*)msg;
     float *rttptr = malloc(sizeof(float) * sizeRtt);
 
-    printf("PING %s (%s) %d(%d) bytes of data\n", argv[ctx.index], targetIp, 56, 84);
+    printf("PING %s (%s): %d data bytes", argv[ctx.index], targetIp, 56);
     double timestart = get_timestamp();
 
     while(interrupted != 1){
         create_packet(packet, ctx.stats, msg);
+        print_verbose_id(ctx, packet);
 
         int size = sendto(ctx.socket, packet, 64, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)); 
         if(size < 1){
@@ -191,14 +173,14 @@ int main(int argc, char *argv[]){
 
             memcpy(&time, (char *)icmp + sizeof(struct icmphdr), sizeof(double));
             float timePacket = (get_timestamp() - time) * 1000;
-            printf("%d bytes from %s (%s): icmp_seq=%d ttl=%d time=%.2f ms\n",
-                    size - ip_header_len, destHostname, targetIp, ntohs(icmp->un.echo.sequence), ip->ttl, timePacket);
+            printf("%d bytes from %s: icmp_seq=%d ttl=%d time=%.3f ms\n",
+                    size - ip_header_len, targetIp, ntohs(icmp->un.echo.sequence), ip->ttl, timePacket);
             ctx.stats.packet_receive += 1;
             add_time_rtt(&rttptr, timePacket, indexrtt, &sizeRtt);
         }
         else if(icmp->type == ICMP_DEST_UNREACH || 
                 icmp->type == ICMP_TIME_EXCEEDED){
-            if(is_excedeed_unreach(icmp, packet, ip, size, ip_header_len))
+            if(is_excedeed_unreach(icmp, packet, ip, size, ip_header_len, ctx))
                 continue;
         }
         sleep(1);
@@ -210,9 +192,3 @@ int main(int argc, char *argv[]){
     free_msg_rttptr(msg, rttptr);
     return (0);
 }
-
-// have to do the print of ip header and icmp when -v is activate
-// Have to do the parse of -v -? options
-// maybe implement the -ttl bonus
-// Reimplement the code in main.
-// using the getopt function

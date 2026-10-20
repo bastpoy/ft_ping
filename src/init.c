@@ -48,7 +48,7 @@ static int init_socket(struct ping_ctx *ctx)
 int init_ctx(struct ping_ctx *ctx, int argc, char **argv)
 {
     memset(ctx, 0, sizeof(*ctx));
-    ctx->stats.sequence = 1;
+    ctx->stats.sequence = 0;
 
     int ret = check_args(argc, argv, ctx);
     if (ret != 0)
@@ -64,12 +64,14 @@ int check_args(int argc, char *argv[], struct ping_ctx *ctx){
     ctx->args.ttl = 0;
     opterr = 0;
 
-    while ((opt = getopt_long(argc, argv, "v?", long_opts, NULL)) != -1){
-        printf("the opt value is: %d\n", opt);
+    while ((opt = getopt_long(argc, argv, "vh?", long_opts, NULL)) != -1){
         switch (opt){
         case 'v':
             ctx->args.verbose = true;
             break;
+        case 'h':
+            print_help();
+            return 3;
         case OPT_TTL:
             if (parse_int(optarg, 1, 255, &ctx->args.ttl) != 0){
                 printf("ping: invalid value (`%s' near `%s')\n", optarg, optarg);
@@ -77,13 +79,11 @@ int check_args(int argc, char *argv[], struct ping_ctx *ctx){
             }
             break;
         case '?':
-            printf("optopt = %d ('%c'), argv[optind-1] = %s\n",
-                optopt, optopt ? optopt : '0', argv[optind - 1]);
             if (optopt == OPT_TTL)
                 printf("ping: option '--ttl' requires an argument\n");
-            else if (optopt == 0)                       // option longue inconnue
+            else if (optopt == 0)
                 printf("ping: unrecognized option '%s'\n", argv[optind - 1]);
-            else if (optopt != '?')                     // option courte inconnue
+            else if (optopt != '?')
                 printf("ping: invalid option -- '%c'\n", optopt);
             print_help();
             return 2;
@@ -91,7 +91,7 @@ int check_args(int argc, char *argv[], struct ping_ctx *ctx){
     }
 
     if (optind >= argc){
-        printf("ping: usage error: Destination address required\n");
+        printf("ping: missing host operand\n");
         return 2;
     }
     if (optind + 1 < argc){
@@ -99,7 +99,5 @@ int check_args(int argc, char *argv[], struct ping_ctx *ctx){
         return 2;
     }
     ctx->index = optind;
-    if (ctx->args.verbose)
-        printf("ping: sock4.fd: 3 (socktype: SOCK_DGRAM), sock6.fd: 4 (socktype: SOCK_DGRAM), hints.ai_family: AF_UNSPEC\n\n");
     return 0;
 }

@@ -20,6 +20,7 @@
 #include <getopt.h>
 
 #define ICMP_MINLEN 8
+#define PRINT_HELP 3
 
 struct ping_struct{
     uint16_t sequence;
@@ -32,10 +33,6 @@ struct ping_struct{
 struct arguments {
     bool verbose;
     int ttl;
-};
-
-struct addr_src_host {
-
 };
 
 struct ping_ctx {
@@ -57,14 +54,14 @@ int check_args(int argc, char *argv[], struct ping_ctx *ctx);
 
 //utils
 void print_help();
-uint16_t checksum(void *addr, size_t len);
 void print_result_ping(struct ping_struct ping_struct, float *rttptr, int sequence, double timeStart, char *arg);
+void print_verbose_id(struct ping_ctx ctx, struct icmphdr *packet);
+void print_verbose_unreach_excedeed(struct iphdr *in_ip, struct icmphdr *in_icmp);
+uint16_t checksum(void *addr, size_t len);
 double get_timestamp();
 void free_msg_rttptr(uint8_t *msg, float *rttptr);
 
 // data
-
-void extract_message(void *pkt, struct icmphdr *msg, double *value, uint8_t *ttl);
 void add_time_rtt(float **ptr, float time, int index, int *ptrSize);
 bool extract_time_exceeded(struct icmphdr *icmp, int expected_seq);
 
