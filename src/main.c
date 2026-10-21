@@ -144,7 +144,6 @@ int main(int argc, char *argv[]){
             return(1);
         }
         ctx.stats.timeSend = get_timestamp();
-        printf("timestart: %f\n", ctx.stats.timeSend);
         ctx.stats.packet_send += 1;
         
 
@@ -187,15 +186,13 @@ int main(int argc, char *argv[]){
             else if(icmp->type == ICMP_DEST_UNREACH || 
                     icmp->type == ICMP_TIME_EXCEEDED){
                 if(is_excedeed_unreach(icmp, packet, ip, size, ip_header_len, ctx)){
-                    break;
+                    continue;
                 }
             }
         }
-        printf("the time now %f before %f and substract %f\n", get_timestamp(), ctx.stats.timeSend, get_timestamp() - ctx.stats.timeSend);
         if(get_timestamp() - ctx.stats.timeSend < 1.0 ){
             usleep((1 - (get_timestamp() - ctx.stats.timeSend)) * 1000000);
         }
-        // sleep(1);
         ctx.stats.sequence += 1;
         indexrtt += 1;
     } 
