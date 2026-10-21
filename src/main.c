@@ -133,57 +133,69 @@ int main(int argc, char *argv[]){
     double timestart = get_timestamp();
 
     while(interrupted != 1){
-        create_packet(packet, ctx.stats, msg);
+        bool isReceive = false;
         print_verbose_id(ctx, packet);
+        create_packet(packet, ctx.stats, msg);
 
         int size = sendto(ctx.socket, packet, 64, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)); 
         if(size < 1){
             printf("Error sendto: %s\n", strerror(errno));
             free_msg_rttptr(msg, rttptr);
             return(1);
-        }else{
-            ctx.stats.packet_send += 1;
         }
-        char buffer[1024] = "\0";
-        struct sockaddr_in sender;
-        socklen_t sender_len = sizeof(sender);
-        size = recvfrom(ctx.socket, buffer, sizeof(buffer), 0, (struct sockaddr *)&sender, &sender_len);
-        if(size < 0){
-            if (errno == EAGAIN || errno == EWOULDBLOCK){
-                ctx.stats.sequence += 1;
-                continue;
-            }
-            if (errno == EINTR) {
-                close(ctx.socket);
-                break;
-            }
-            printf("error receviving message: %s\n", strerror(errno));
-            free_msg_rttptr(msg, rttptr);
-            return 1;
-        }
+        ctx.stats.timeSend = get_timestamp();
+        printf("timestart: %f\n", ctx.stats.timeSend);
+        ctx.stats.packet_send += 1;
         
-        struct iphdr *ip = (struct iphdr *)buffer;
-        int ip_header_len = ip->ihl * 4;
-        struct icmphdr *icmp = (struct icmphdr *)(buffer + ip_header_len);
 
-        if (icmp->type == ICMP_ECHOREPLY) {
-            if (icmp->un.echo.id != packet->un.echo.id)
-                continue;
-            double time;
-
-            memcpy(&time, (char *)icmp + sizeof(struct icmphdr), sizeof(double));
-            float timePacket = (get_timestamp() - time) * 1000;
-            printf("%d bytes from %s: icmp_seq=%d ttl=%d time=%.3f ms\n",
-                    size - ip_header_len, targetIp, ntohs(icmp->un.echo.sequence), ip->ttl, timePacket);
-            ctx.stats.packet_receive += 1;
-            add_time_rtt(&rttptr, timePacket, indexrtt, &sizeRtt);
+        while(interrupted != 1 && !isReceive){
+            char buffer[1024] = "\0";
+            size = recvfrom(ctx.socket, buffer, sizeof(buffer), 0, NULL, NULL);
+            if(size < 0){
+                if (errno == EAGAIN || errno == EWOULDBLOCK){
+                    ctx.stats.sequence += 1;
+                    break;
+                }
+                if (errno == EINTR) {
+                    close(ctx.socket);
+                    print_result_ping(ctx.stats, rttptr, indexrtt, timestart, argv[ctx.index]);
+                    free_msg_rttptr(msg, rttptr);
+                    return errno;
+                }
+                printf("error receviving message: %s\n", strerror(errno));
+                free_msg_rttptr(msg, rttptr);
+                return 1;
+            }
+            
+            struct iphdr *ip = (struct iphdr *)buffer;
+            int ip_header_len = ip->ihl * 4;
+            struct icmphdr *icmp = (struct icmphdr *)(buffer + ip_header_len);
+    
+            if (icmp->type == ICMP_ECHOREPLY) {
+                if (icmp->un.echo.id != packet->un.echo.id)
+                    continue;
+                double time;
+    
+                memcpy(&time, (char *)icmp + sizeof(struct icmphdr), sizeof(double));
+                float timePacket = (get_timestamp() - time) * 1000;
+                printf("%d bytes from %s: icmp_seq=%d ttl=%d time=%.3f ms\n",
+                        size - ip_header_len, targetIp, ntohs(icmp->un.echo.sequence), ip->ttl, timePacket);
+                ctx.stats.packet_receive += 1;
+                add_time_rtt(&rttptr, timePacket, indexrtt, &sizeRtt);
+                isReceive = true;
+            }
+            else if(icmp->type == ICMP_DEST_UNREACH || 
+                    icmp->type == ICMP_TIME_EXCEEDED){
+                if(is_excedeed_unreach(icmp, packet, ip, size, ip_header_len, ctx)){
+                    break;
+                }
+            }
         }
-        else if(icmp->type == ICMP_DEST_UNREACH || 
-                icmp->type == ICMP_TIME_EXCEEDED){
-            if(is_excedeed_unreach(icmp, packet, ip, size, ip_header_len, ctx))
-                continue;
+        printf("the time now %f before %f and substract %f\n", get_timestamp(), ctx.stats.timeSend, get_timestamp() - ctx.stats.timeSend);
+        if(get_timestamp() - ctx.stats.timeSend < 1.0 ){
+            usleep((1 - (get_timestamp() - ctx.stats.timeSend)) * 1000000);
         }
-        sleep(1);
+        // sleep(1);
         ctx.stats.sequence += 1;
         indexrtt += 1;
     } 

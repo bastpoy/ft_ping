@@ -28,6 +28,7 @@ struct ping_struct{
     unsigned int packet_receive;
     struct timeval firstPacketSend;
     float packet_loss;
+    double timeSend;
 };
 
 struct arguments {
